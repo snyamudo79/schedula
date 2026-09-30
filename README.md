@@ -2,6 +2,8 @@
 
 A time-blocked schedule + habit tracker that holds you to your plan. It's an installable app that works fully offline, with no account and no cloud.
 
+**Live app: https://snyamudo79.github.io/schedula/**. Open it on your phone and add it to your home screen.
+
 ## Install it (one time)
 
 1. Double-click **`start.bat`**. It starts a small local server and opens http://localhost:5178. (Or run `python -m http.server 5178` in this folder.)
