@@ -7,7 +7,7 @@
    - Firebase SDK (accounts/sync): cache-first, so sync code loads offline too.
      Firebase's own network calls (sign-in, database) are never intercepted.
    ========================================================================== */
-const VERSION = 'v10';
+const VERSION = 'v11';
 const SHELL_CACHE = `schedula-shell-${VERSION}`;
 const FONT_CACHE = 'schedula-fonts';
 const LIB_CACHE = 'schedula-lib'; // Firebase SDK (versioned URLs, safe to cache forever)
