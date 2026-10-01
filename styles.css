@@ -596,6 +596,27 @@ body.is-offline::after { display: block; }
   .main { padding-top: calc(38px + env(safe-area-inset-top)); }
 }
 
+/* ---------- Account & sync ---------- */
+input[type=email], input[type=password] {
+  width: 100%; min-width: 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-2); border: 1px solid var(--line-2); outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.btn.google { width: 100%; background: #fff; color: #1f2937; border-color: #fff; font-weight: 600; }
+.btn.google:hover { background: #f1f5f9; border-color: #f1f5f9; }
+.or { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: var(--faint); font-size: 12px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.form-error { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; color: #fecaca; background: rgba(248, 113, 113, .1); border: 1px solid rgba(248, 113, 113, .35); }
+.btn.choice { flex-direction: column; align-items: flex-start; gap: 3px; padding: 14px 16px; text-align: left; white-space: normal; }
+.btn.choice span { font-weight: 500; font-size: 13px; opacity: .8; }
+.sync-chip { text-decoration: none; transition: border-color .15s; }
+.sync-chip:hover { border-color: var(--line-2); }
+.sync-chip b { font-family: var(--font); font-size: 12.5px; }
+.sync-chip.good b { color: var(--good); }
+.sync-chip.warn b { color: var(--warn); }
+.sync-chip.bad b { color: var(--bad); }
+.sync-chip.accent b { color: var(--accent); }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1100px) {
   .grid-today, .grid-2, .stats-grid, .settings-grid { grid-template-columns: minmax(0, 1fr); }

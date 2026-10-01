@@ -4,16 +4,21 @@
    - Same-origin files: cache-first, so the app opens instantly with no network.
    - Google Fonts: stale-while-revalidate (cached after the first online visit;
      offline without them, the app falls back to system fonts).
+   - Firebase SDK (accounts/sync): cache-first, so sync code loads offline too.
+     Firebase's own network calls (sign-in, database) are never intercepted.
    ========================================================================== */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL_CACHE = `schedula-shell-${VERSION}`;
 const FONT_CACHE = 'schedula-fonts';
+const LIB_CACHE = 'schedula-lib'; // Firebase SDK (versioned URLs, safe to cache forever)
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './quotes.js',
+  './firebase-config.js',
+  './sync.js',
   './manifest.webmanifest',
   './icons/logo.svg',
   './icons/icon-192.png',
@@ -70,6 +75,18 @@ self.addEventListener('fetch', event => {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       const hit = await cache.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok) cache.put(req, res.clone());
+      return res;
+    })());
+    return;
+  }
+
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    event.respondWith((async () => {
+      const cache = await caches.open(LIB_CACHE);
+      const hit = await cache.match(req);
       if (hit) return hit;
       const res = await fetch(req);
       if (res.ok) cache.put(req, res.clone());

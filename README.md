@@ -24,6 +24,12 @@ The mark is a **stopwatch holding a checkmark**: a ring with a gap and a crown d
 node tools/make-icons.js icons
 ```
 
+## Accounts & sync (phone ↔ desktop)
+
+Accounts are **optional**. Signed out, Schedula is local-only, as before. Sign in (email or Google) on each device and your schedule, habits, priorities, inbox, journal and history stay in sync. It also works offline: changes upload when you reconnect.
+
+Setting it up takes a free Firebase project, done once by the owner. See **[SYNC_SETUP.md](SYNC_SETUP.md)**. Until it's set up, Settings → Account & sync says so and everything else works normally.
+
 ## Offline & updates
 
 - `sw.js` (a service worker) stores the whole app on first load: pages, styles, all quotes and the icons. Fonts are stored after the first online visit; until then, system fonts are used.

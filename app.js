@@ -205,6 +205,7 @@
       if (!saveFailed) toast('Could not save — browser storage is unavailable or full. Export a backup.', 'bad');
       saveFailed = true;
     }
+    if (window.SchedulaSync) window.SchedulaSync.localChanged(); // queue changed parts for upload (no-op when signed out)
   }
 
   let state = load();
@@ -233,7 +234,7 @@
     const blocks = src
       .filter(b => !partial || toMin(b.start) + grace >= nm)
       .map(b => ({ id: b.id, start: b.start, end: b.end, title: b.title, emoji: b.emoji, cat: b.cat, status: 'pending' }));
-    state.days[k] = { blocks: sortBlocks(blocks), early, grace };
+    state.days[k] = { blocks: sortBlocks(blocks), early, grace, snapAt: Date.now() }; // snapAt lets synced devices agree on the day's blocks
     return true;
   }
 
@@ -569,6 +570,7 @@
           ? 'Build a time-blocked schedule. Each block opens a short check-in window — miss it and it counts. No editing today to dodge it.'
           : 'Nothing is scheduled today. Your daily habits still count.'}</p>
         ${noSchedule ? `<button class="btn primary" data-action="wizard">${ICON.spark} Build my schedule</button>` : ''}
+        ${noSchedule && SYNC().configured && !syncUser() ? `<p class="muted small">Already use Schedula on another device? <button class="link small" data-action="auth-open" data-mode="signin">Sign in to sync</button></p>` : ''}
       </div>`;
     }
     if (f.mode === 'finished') {
@@ -1130,10 +1132,13 @@
           <div class="modal-actions"><button class="btn ghost" type="button" data-action="test-alert">${ICON.bell} Test alert</button><button class="btn primary" type="submit">Save settings</button></div>
         </form>
         <div class="stack">
+        ${accountCardHTML()}
         ${appCardHTML()}
         <div class="card">
           <div class="card-head"><h2>Your data</h2></div>
-          <p class="muted small" style="margin-bottom:16px">Everything is stored locally in this browser — nothing leaves your device. Export a backup regularly, and before clearing browser data.</p>
+          <p class="muted small" style="margin-bottom:16px">${syncUser()
+            ? 'Saved on this device and synced to your account. A backup file is still a good idea now and then.'
+            : 'Everything is stored locally in this browser — nothing leaves your device. Export a backup regularly, and before clearing browser data.'}</p>
           <div class="row">
             <button class="btn" data-action="export">${ICON.download} Export backup</button>
             <label class="btn" tabindex="0">${ICON.upload} Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
@@ -1146,6 +1151,151 @@
         </div>
       </div>`;
   }
+
+  /* ---------- account & sync UI ---------- */
+  const SYNC = () => window.SchedulaSync || { configured: false, state: 'off', user: null };
+  const syncUser = () => SYNC().user;
+
+  /** [label, tone] for the current sync status. */
+  function syncLabel() {
+    const s = SYNC();
+    if (!s.configured) return ['Not set up', 'muted'];
+    if (s.state === 'loading') return ['Starting…', 'muted'];
+    if (s.state === 'unavailable') return ['Offline — sync paused', 'warn'];
+    if (!s.user) return ['Local only', 'muted'];
+    if (s.state === 'error') return ['Sync problem', 'bad'];
+    if (s.state === 'choose') return ['Waiting for your choice', 'warn'];
+    if (!navigator.onLine) return ['Offline — will sync', 'warn'];
+    if (s.state === 'connecting' || s.state === 'syncing') return ['Syncing…', 'accent'];
+    if (s.state === 'synced') return [`Synced${s.lastSyncAt ? ` · ${fmtMin(new Date(s.lastSyncAt).getHours() * 60 + new Date(s.lastSyncAt).getMinutes())}` : ''}`, 'good'];
+    return ['Local only', 'muted'];
+  }
+
+  function syncChipHTML() {
+    const s = SYNC();
+    if (!s.configured) return '';
+    const [label, tone] = syncLabel();
+    return `<a class="side-stat sync-chip ${tone}" href="#settings" title="Account & sync">
+      <span>${s.user ? '☁︎ Sync' : '☁︎ Account'}</span><b class="small">${s.user ? esc(label) : 'Sign in'}</b></a>`;
+  }
+
+  function accountCardHTML() {
+    const s = SYNC();
+    let body;
+    if (!s.configured) {
+      body = `<p class="muted small">Accounts keep your phone and desktop in sync. They aren't switched on for this copy of Schedula yet — the owner connects a free Firebase project once (see <b>SYNC_SETUP.md</b>). Until then, everything works on this device and you can move data with backups.</p>`;
+    } else if (!s.user) {
+      body = `<p class="muted small" style="margin-bottom:14px">Optional. Create a free account to use Schedula on your phone <b>and</b> desktop — your schedule, habits and history stay in sync, even after working offline.</p>
+        ${s.state === 'unavailable' ? `<p class="small warn-text" style="margin-bottom:12px">${esc(s.error)}</p>` : ''}
+        <div class="row">
+          <button class="btn primary" data-action="auth-open" data-mode="signup" ${s.state === 'loading' || s.state === 'unavailable' ? 'disabled' : ''}>Create account</button>
+          <button class="btn" data-action="auth-open" data-mode="signin" ${s.state === 'loading' || s.state === 'unavailable' ? 'disabled' : ''}>Sign in</button>
+        </div>`;
+    } else {
+      const [label, tone] = syncLabel();
+      const pending = window.SchedulaSync && window.SchedulaSync.pending ? window.SchedulaSync.pending() : 0;
+      body = `<div class="set-row" style="padding-top:0"><div><b>${esc(s.user.name || 'Signed in')}</b><div class="d">${esc(s.user.email)}</div></div>
+          <span class="chip ${tone}">${esc(label)}</span></div>
+        ${s.state === 'error' && s.error ? `<p class="small warn-text" style="margin:10px 0">${esc(s.error)}</p>` : ''}
+        ${pending ? `<p class="muted small" style="margin:10px 0">${plural(pending, 'change')} waiting to upload.</p>` : ''}
+        <p class="muted small" style="margin:12px 0 14px">Sign in with the same account on your other devices. Changes appear there within seconds.</p>
+        <div class="row">
+          <button class="btn" data-action="sync-now">↻ Sync now</button>
+          <button class="btn ghost" data-action="sign-out">Sign out</button>
+        </div>`;
+    }
+    return `<div class="card"><div class="card-head"><h2>Account & sync</h2></div>${body}</div>`;
+  }
+
+  function openAuth(mode) {
+    const s = SYNC();
+    if (!s.configured) { toast('Sync is not set up yet — see SYNC_SETUP.md.', 'bad'); return; }
+    const signup = mode === 'signup';
+    openModal(`
+      <button class="btn icon ghost close-x" data-action="close-modal" aria-label="Close">${ICON.x}</button>
+      <p class="eyebrow">☁︎ Account</p>
+      <h2>${signup ? 'Create your account' : 'Welcome back'}</h2>
+      <p class="muted">${signup ? 'Sync your schedule between phone and desktop. Your data stays on this device too.' : 'Sign in to sync this device with your other ones.'}</p>
+      <button class="btn google" type="button" data-action="auth-google">${GOOGLE_G} Continue with Google</button>
+      <div class="or"><span>or with email</span></div>
+      <form data-form="auth" class="stack" style="gap:12px" autocomplete="on" novalidate>
+        <input type="hidden" name="mode" value="${signup ? 'signup' : 'signin'}">
+        <label class="f">Email<input type="email" name="email" autocomplete="email" inputmode="email" required></label>
+        <label class="f">Password<input type="password" name="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="6" required></label>
+        ${signup ? `<label class="f">Confirm password<input type="password" name="confirm" autocomplete="new-password" minlength="6" required></label>` : ''}
+        <p class="form-error" id="authError" role="alert" hidden></p>
+        <button class="btn primary" type="submit" id="authSubmit">${signup ? 'Create account' : 'Sign in'}</button>
+      </form>
+      <div class="row" style="justify-content:space-between;margin-top:14px">
+        <button class="link small" data-action="auth-open" data-mode="${signup ? 'signin' : 'signup'}">${signup ? 'Have an account? Sign in' : 'New here? Create an account'}</button>
+        ${signup ? '' : '<button class="link small" data-action="auth-reset">Forgot password?</button>'}
+      </div>`, { kind: 'auth' });
+  }
+
+  function authError(msg) {
+    const el = $('#authError');
+    if (!el) { if (msg) toast(msg, 'bad'); return; }
+    el.textContent = msg || '';
+    el.hidden = !msg;
+  }
+
+  async function runAuth(fn, okMsg) {
+    const btns = $$('#modalRoot .btn');
+    btns.forEach(b => { b.disabled = true; });
+    authError('');
+    try {
+      await fn();
+      closeModal();
+      if (okMsg) toast(okMsg, 'good');
+      render();
+    } catch (e) {
+      authError(SYNC().friendly ? SYNC().friendly(e) : String(e.message || e));
+      btns.forEach(b => { b.disabled = false; });
+    }
+  }
+
+  let linkResolve = null;
+  function openLinkChoice() {
+    openModal(`
+      <p class="eyebrow">☁︎ Connect this device</p>
+      <h2>Your account already has data</h2>
+      <p class="muted">This device has its own data too. What should happen?</p>
+      <div class="stack" style="gap:10px">
+        <button class="btn primary choice" data-action="link-choice" data-mode="account">
+          <b>Use my account's data</b><span>Recommended for a new phone. This device switches to what's in your account.</span></button>
+        <button class="btn choice" data-action="link-choice" data-mode="merge">
+          <b>Merge both</b><span>Keep everything from both. Matching habits are combined; your account's settings and schedule win.</span></button>
+      </div>
+      <p class="muted small" style="margin-top:14px">Not sure? <button class="link small" data-action="export">Download a backup of this device first</button>.</p>`,
+    { kind: 'link', locked: true });
+  }
+
+  const GOOGLE_G = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7z"/>'
+    + '<path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0 0 12 24z"/>'
+    + '<path fill="#FBBC05" d="M5.3 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.3a12 12 0 0 0 0 10.8l4-3.1z"/>'
+    + '<path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.3 6.6l4 3.1c.9-2.9 3.6-4.9 6.7-4.9z"/></svg>';
+
+  /** Bridge used by sync.js. */
+  window.Schedula = {
+    getState: () => state,
+    applyState(next) {
+      state = migrate(next);
+      evaluate();
+      save();
+      if (!isTyping()) render();
+      if (modalKind === 'focus') renderFocus();
+      checkExcuses();
+    },
+    chooseLinkMode() {
+      return new Promise(resolve => { linkResolve = resolve; openLinkChoice(); });
+    },
+    onSyncStatus() {
+      const slot = $('#syncChipSlot');
+      if (slot) slot.innerHTML = syncChipHTML();
+      if (ui.view === 'settings' && !isTyping() && !modalKind) render();
+    },
+  };
 
   const VIEW_RENDER = { today: viewToday, habits: viewHabits, plan: viewPlan, stats: viewStats, settings: viewSettings };
 
@@ -1160,6 +1310,7 @@
     $('#sideFoot').innerHTML = `
       <div class="side-stat"><span>Today</span><b>${pct(st.score)}</b></div>
       <div class="side-stat"><span>Discipline streak</span><b>${disciplineStreak()}🔥</b></div>
+      <div id="syncChipSlot">${syncChipHTML()}</div>
       ${pwa.installEvent && !isStandalone() ? `<button class="btn primary" data-action="install">${ICON.download} Install app</button>` : ''}`;
     $('#main').innerHTML = VIEW_RENDER[ui.view]();
     if (ui.view === 'habits') {
@@ -1210,8 +1361,12 @@
 
   /* ---------- accountability ---------- */
   function checkExcuses() {
-    if (modalKind === 'excuse') return;
     const misses = unackedMisses();
+    if (modalKind === 'excuse') {
+      if (!misses.length) { closeModal(true); render(); toast('Answered on your other device.'); } // acknowledged elsewhere via sync
+      return;
+    }
+    if (modalKind === 'link') return; // never interrupt the account-linking choice
     if (!misses.length) return;
     const shown = misses.slice(0, 8);
     openModal(`
@@ -1403,6 +1558,27 @@
       render();
     },
     'quote-today': () => { ui.bonus = null; ui.quoteAnim = true; render(); },
+    'auth-open': el => openAuth(el.dataset.mode),
+    'auth-google': () => runAuth(() => SYNC().google(), 'Signed in — syncing.'),
+    'auth-reset': () => {
+      const email = String(($('#modalRoot input[name=email]') || {}).value || '').trim();
+      if (!email) { authError('Type your email above first, then tap “Forgot password?”.'); return; }
+      runAuth(() => SYNC().resetPassword(email), `Password reset email sent to ${email}.`);
+    },
+    'sign-out': () => confirmModal({
+      title: 'Sign out?',
+      body: 'Syncing stops on this device. Your data stays here and in your account — sign in again anytime to resume.',
+      ok: 'Sign out',
+      onOk: async () => { try { await SYNC().signOut(); toast('Signed out. This device is now local only.'); } catch (e) { toast(SYNC().friendly(e), 'bad'); } render(); },
+    }),
+    'sync-now': () => { SYNC().syncNow && SYNC().syncNow(); toast('Syncing…'); },
+    'link-choice': el => {
+      const resolve = linkResolve;
+      linkResolve = null;
+      closeModal(true);
+      if (resolve) resolve(el.dataset.mode === 'merge' ? 'merge' : 'account');
+      toast(el.dataset.mode === 'merge' ? 'Merging this device with your account…' : 'Loading your account data…');
+    },
     install: async () => {
       const e = pwa.installEvent;
       if (!e) { toast("Use your browser's menu → Install Schedula.", 'bad'); return; }
@@ -1550,7 +1726,9 @@
       toast('Backup exported.', 'good');
     },
     reset: () => {
-      openModal(`<h2>Reset everything?</h2><p class="muted">This permanently erases your schedule, habits, and entire history. Export a backup first if you might want it. Type <b>RESET</b> to confirm.</p>
+      openModal(`<h2>Reset everything?</h2><p class="muted">${syncUser()
+        ? 'This signs this device out and erases its data. <b>Your account and other devices are not affected</b> — sign in again to get everything back.'
+        : 'This permanently erases your schedule, habits, and entire history. Export a backup first if you might want it.'} Type <b>RESET</b> to confirm.</p>
         <form data-form="reset" autocomplete="off"><input type="text" name="confirm" placeholder="RESET">
         <div class="modal-actions"><button class="btn ghost" type="button" data-action="close-modal">Cancel</button><button class="btn danger" type="submit">Erase all data</button></div></form>`, { kind: 'reset' });
     },
@@ -1586,6 +1764,18 @@
   }
 
   const FORMS = {
+    auth: f => {
+      const fd = new FormData(f);
+      const mode = fd.get('mode'), email = String(fd.get('email') || '').trim(), pw = String(fd.get('password') || '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authError('Enter a valid email address.'); return; }
+      if (pw.length < 6) { authError('Password must be at least 6 characters.'); return; }
+      if (mode === 'signup') {
+        if (pw !== String(fd.get('confirm') || '')) { authError("Passwords don't match."); return; }
+        runAuth(() => SYNC().signUp(email, pw), 'Account created — this device is now syncing.');
+      } else {
+        runAuth(() => SYNC().signIn(email, pw), 'Signed in — syncing.');
+      }
+    },
     intention: f => {
       const fd = new FormData(f);
       const text = String(fd.get('text') || '').trim();
@@ -1734,8 +1924,12 @@
       save(); render();
       toast(rulesChanged ? 'Saved. New window rules apply from tomorrow.' : 'Settings saved.', 'good');
     },
-    reset: f => {
+    reset: async f => {
       if (String(new FormData(f).get('confirm') || '').trim() !== 'RESET') { toast('Type RESET to confirm.', 'bad'); return; }
+      // Disconnect first so the reset can never upload deletions to the account.
+      if (syncUser() && SYNC().forgetDevice) {
+        try { await SYNC().forgetDevice(); } catch (e) { toast('Could not sign out — reset cancelled to protect your account data.', 'bad'); return; }
+      }
       state = defaultState();
       closeModal(true);
       ui.editId = null; fired.clear();
@@ -1780,7 +1974,9 @@
       try { obj = JSON.parse(String(reader.result)); } catch (err) { toast('That file is not valid JSON.', 'bad'); return; }
       if (!obj || typeof obj !== 'object' || !obj.schedule || !obj.days || !Array.isArray(obj.habits)) { toast("That file isn't a Schedula backup.", 'bad'); return; }
       confirmModal({
-        title: 'Replace all data with this backup?', body: `Your current data is overwritten by <b>${esc(file.name)}</b>.`, ok: 'Import', danger: true,
+        title: 'Replace all data with this backup?',
+        body: `Your current data is overwritten by <b>${esc(file.name)}</b>.${syncUser() ? ' Because you are signed in, <b>your account and other devices will be replaced too</b>.' : ''}`,
+        ok: 'Import', danger: true,
         onOk: () => { state = migrate(obj); ui.editId = null; fired.clear(); evaluate(); save(); render(); toast('Backup imported.', 'good'); },
       });
     };
